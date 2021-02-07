@@ -55,7 +55,7 @@ values."
      (shell :variables
              shell-default-height 30
              shell-default-position 'bottom)
-     spell-checking
+     (spell-checking :variables enable-flyspell-auto-completion nil)
      ;; syntax-checking
      ;; version-control
      (latex :variables
@@ -337,9 +337,12 @@ you should place your code here."
   (require 'ob-python) ;lewton somehow after update they are not auto loaded, unless set here, have to run org-reload
   (require 'ob-shell) ;lewton
   (setq-default 
+   select-enable-primary t ;important for linux "selection + middle button"
+   mouse-yank-at-point t
    ;;python-pipenv-activate t
    ;auto-completion-tab-key-behavior nil
    ;auto-completion-tab-key-behavior 'cycle
+   helm-ff-auto-update-initial-value nil
    org-startup-with-inline-images nil
    org-startup-truncated nil ; to wrap lines in org mode
    org-babel-no-eval-on-ctrl-c-ctrl-c t
@@ -371,6 +374,10 @@ you should place your code here."
    scroll-margin 3
    helm-ff-auto-update-initial-value t
    ;shell-command-switch "-ilc" #or '-ic'. not work
+   org-file-apps '((auto-mode . emacs)
+		("\\.x?html?\\'" . default)
+		("\\.pdf\\'" . "evince %s"))
+
    )
   (defun insert-image-header ()
     (interactive)
@@ -442,7 +449,7 @@ you should place your code here."
     (interactive)
 	(insert "\\begin{figure*}[hptb]\n\\begin{center}\n\\epsscale{1}\n\\plotone{}\n\\caption{}\n\\label{fig:}\n\\end{center}\n\\end{figure*}")
 	)
-  (defun openiTerm ()
+  (defun openiTerm () ;Mac iTerm2
     (interactive)
 	(shell-command "open -a iTerm .")
 	)
@@ -527,6 +534,9 @@ you should place your code here."
     (when (and (>= (recursion-depth) 1) (active-minibuffer-window))
       (abort-recursive-edit)))
   (add-hook 'mouse-leave-buffer-hook 'stop-using-minibuffer)
+  ;(add-hook 'hack-local-variables-hook 'spacemacs/toggle-truncate-lines-off)
+  (spacemacs/toggle-truncate-lines-off)
+  (add-hook 'text-mode-hook 'spacemacs/toggle-visual-line-navigation-off) ;; Visual line navigation for textual modes
 
 
   ;;https://stackoverflow.com/questions/25161792/emacs-org-mode-how-can-i-fold-everything-but-the-current-headline
@@ -552,17 +562,37 @@ you should place your code here."
   (setq ns-pop-up-frames nil) ; to stop Mac "open" open two windows
   (setq helm-ff-auto-update-initial-value t)
 
+  (define-key evil-insert-state-map (kbd "C-a") nil) ;evil-paste-last-insertion
+  (define-key evil-insert-state-map (kbd "C-d") nil) ;evil-shift-left-line
+  (define-key evil-insert-state-map (kbd "C-e") nil) ;evil-copy-from-below
+  (define-key evil-insert-state-map (kbd "C-k") nil) ;evil-insert-digraph
+  (define-key evil-insert-state-map (kbd "C-n") nil) ;evil-complete-next
+  (define-key evil-insert-state-map (kbd "C-o") nil) ;evil-execute-in-normal-state
+  (define-key evil-insert-state-map (kbd "C-p") nil) ;evil-complete-previous
+  (define-key evil-insert-state-map (kbd "C-r") nil) ;evil-paste-from-register
+  (define-key evil-insert-state-map (kbd "C-t") nil) ;evil-shift-right-line
+  (define-key evil-insert-state-map (kbd "C-w") nil) ;evil-delete-backward-word
+  (define-key evil-insert-state-map (kbd "C-x") nil) ;Prefix Command
+  (define-key evil-insert-state-map (kbd "C-y") nil) ;evil-copy-from-above
+  (define-key evil-insert-state-map (kbd "C-z") nil) ;evil-emacs-state
+
+
+  ;(define-key org-mode-map (kbd "RET") 'evil-next-line-first-non-blank) ;Wrong. In insert mode, it will go to next line instead of inserting newline
+  ;(define-key evil-org-mode-map (kbd "RET") nil)
+  ;(define-key evil-org-mode-map (kbd "RET") 'evil-next-line-first-non-blank) ;Wrong. In insert mode, it will go to next line instead of inserting newline
+
+  ;these work fine
   ;(define-key evil-normal-state-map (kbd "RET") nil)
-  (define-key evil-normal-state-map (kbd "RET") 'evil-next-line-first-non-blank)
-  ;(define-key org-mode-map (kbd "RET") nil)
-  ;(define-key org-mode-map (kbd "RET") 'evil-next-line-first-non-blank)
+  ;(define-key evil-normal-state-map (kbd "RET") 'evil-next-line-first-non-blank)
   ;(define-key org-src-mode-map (kbd "RET") nil)
   ;(define-key org-src-mode-map (kbd "RET") 'evil-next-line-first-non-blank)
-  ;(define-key evil-org-mode-map (kbd "RET") nil)
-  ;(define-key evil-org-mode-map (kbd "RET") 'evil-next-line-first-non-blank) ;not work
   ;(define-key spacemacs-org-mode-map (kbd "RET") nil)
   ;(define-key spacemacs-org-mode-map (kbd "RET") 'evil-next-line-first-non-blank)
+  ;but the following solution is better
+  (evil-define-key 'normal evil-org-mode-map (kbd "RET") 'evil-next-line-first-non-blank)
+  (evil-define-key 'insert evil-org-mode-map (kbd "RET") nil)
 
+  ;(define-key helm-find-files-map (kbd "C-i") 'helm-ff-TAB) ?
   (define-key evil-normal-state-map (kbd ", i i") 'org-insert-src-block)
   (define-key evil-normal-state-map (kbd ", i e") 'org-edit-src-code)
   (define-key evil-normal-state-map (kbd ", i h") 'insert-image-header)
@@ -604,32 +634,43 @@ you should place your code here."
   (add-hook 'org-mode-hook #'(lambda () (modify-syntax-entry ?_ "w")))
   (add-hook 'org-mode-hook #'(lambda () (modify-syntax-entry ?. "w"))) ;;Character considered as part of a word
   (defalias 'forward-evil-word 'forward-evil-symbol)
+  ;(with-eval-after-load "ispell"
+  ;  (setq ispell-program-name "hunspell")
+  ;  ;; ispell-set-spellchecker-params has to be called
+  ;  ;; before ispell-hunspell-add-multi-dic will work
+  ;  (ispell-set-spellchecker-params)
+  ;  (ispell-hunspell-add-multi-dic "pl_PL,en_GB")
+  ;  (setq ispell-dictionary "pl_PL,en_GB"))
 )
 
 
-;; Do not write anything past this comment. This is where Emacs will
-;; auto-generate custom variable definitions.
+;I don't know if the following need to be reset
+;;; Do not write anything past this comment. This is where Emacs will
+;;; auto-generate custom variable definitions.
+;(custom-set-variables
+; '(org-format-latex-options
+;   '(:foreground default :background default :scale 1.3 :html-foreground "Black" :html-background "Transparent" :html-scale 1.0 :matchers
+;				 ("begin" "$1" "$" "$$" "\\(" "\\[")))
+; '(org-src-window-setup 'current-window)
+; '(safe-local-variable-values
+;   '((eval spacemacs/toggle-auto-fill-mode-off)
+;	 (eval spacemacs/toggle-visual-line-navigation-on)))
+;(custom-set-faces
+; ;; custom-set-faces was added by Custom.
+; '(font-latex-sectioning-2-face ((t (:background "#F0F0F0" :foreground "#3C3C3C" :weight bold :height 1.3))))
+; '(font-latex-sectioning-3-face ((t (:background "#E5F4FB" :foreground "#123555" :weight bold :height 1.0))))
+; '(org-level-1 ((t (:background "#F0F0F0" :foreground "#3C3C3C" :weight bold :height 1.3))))
+; '(org-level-2 ((t (:background "#E5F4FB" :foreground "#123555" :weight bold :height 1.0)))))
 (custom-set-variables
  ;; custom-set-variables was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
- '(mouse-yank-at-point t)
- '(org-format-latex-options
-   '(:foreground default :background default :scale 1.3 :html-foreground "Black" :html-background "Transparent" :html-scale 1.0 :matchers
-				 ("begin" "$1" "$" "$$" "\\(" "\\[")))
- '(org-src-window-setup 'current-window)
  '(package-selected-packages
-   '(flyspell-correct-helm flyspell-correct auto-dictionary pyim-basedict xr org-category-capture alert log4e gntp dash-functional pythonic pinyinlib vimish-fold powerline spinner org-plus-contrib hydra lv parent-mode projectile pkg-info epl flx f highlight smartparens iedit anzu evil goto-chg undo-tree dash s bind-map bind-key helm avy helm-core popup async macrostep elisp-slime-nav auto-compile packed yapfify xterm-color ws-butler winum which-key volatile-highlights vi-tilde-fringe uuidgen use-package toc-org spaceline shell-pop restart-emacs request rainbow-delimiters pyvenv pytest pyim pyenv-mode py-isort popwin pip-requirements persp-mode pcre2el paradox pangu-spacing org-projectile org-present org-pomodoro org-mime org-download org-bullets open-junk-file neotree multi-term move-text lorem-ipsum live-py-mode linum-relative link-hint langtool indent-guide hy-mode hungry-delete htmlize hl-todo highlight-parentheses highlight-numbers highlight-indentation helm-themes helm-swoop helm-pydoc helm-projectile helm-mode-manager helm-make helm-flx helm-descbinds helm-ag google-translate golden-ratio gnuplot flx-ido find-by-pinyin-dired fill-column-indicator fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-vimish-fold evil-unimpaired evil-tutor evil-surround evil-search-highlight-persist evil-numbers evil-nerd-commenter evil-mc evil-matchit evil-lisp-state evil-indent-plus evil-iedit-state evil-exchange evil-escape evil-ediff evil-args evil-anzu eval-sexp-fu eshell-z eshell-prompt-extras esh-help dumb-jump diminish define-word cython-mode column-enforce-mode clean-aindent-mode auto-highlight-symbol auctex anaconda-mode aggressive-indent adaptive-wrap ace-window ace-pinyin ace-link ace-jump-helm-line))
- '(safe-local-variable-values
-   '((eval spacemacs/toggle-auto-fill-mode-off)
-	 (eval spacemacs/toggle-visual-line-navigation-on))))
+   '(flyspell-correct-popup flyspell-popup yapfify xterm-color ws-butler winum which-key volatile-highlights vi-tilde-fringe uuidgen use-package toc-org spaceline shell-pop restart-emacs request rainbow-delimiters pyvenv pytest pyenv-mode py-isort popwin pip-requirements persp-mode pcre2el paradox org-present org-pomodoro org-mime org-download org-bullets open-junk-file neotree multi-term move-text lorem-ipsum live-py-mode linum-relative link-hint langtool indent-guide hy-mode hungry-delete htmlize hl-todo highlight-parentheses highlight-numbers highlight-indentation helm-themes helm-swoop helm-pydoc helm-projectile helm-mode-manager helm-make helm-flx helm-descbinds helm-ag google-translate golden-ratio gnuplot flyspell-correct-helm flx-ido fill-column-indicator fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-vimish-fold evil-unimpaired evil-tutor evil-surround evil-search-highlight-persist evil-numbers evil-nerd-commenter evil-mc evil-matchit evil-lisp-state evil-indent-plus evil-iedit-state evil-exchange evil-escape evil-ediff evil-args evil-anzu eval-sexp-fu eshell-z eshell-prompt-extras esh-help dumb-jump diminish define-word cython-mode column-enforce-mode clean-aindent-mode auto-highlight-symbol auto-dictionary auctex anaconda-mode aggressive-indent adaptive-wrap ace-window ace-link ace-jump-helm-line)))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
- '(font-latex-sectioning-2-face ((t (:background "#F0F0F0" :foreground "#3C3C3C" :weight bold :height 1.3))))
- '(font-latex-sectioning-3-face ((t (:background "#E5F4FB" :foreground "#123555" :weight bold :height 1.0))))
- '(org-level-1 ((t (:background "#F0F0F0" :foreground "#3C3C3C" :weight bold :height 1.3))))
- '(org-level-2 ((t (:background "#E5F4FB" :foreground "#123555" :weight bold :height 1.0)))))
+ )
