@@ -63,7 +63,9 @@ values."
 			latex-enable-auto-fill nil
 			latex-build-command "LaTeX")
 	;; https://emacs-china.org/t/topic/3152/19
-     ;(chinese :variables chinese-enable-fcitx t)
+	 (chinese :variables
+			  chinese-enable-fcitx t
+			  chinese-fcitx-use-dbus t)
      ;(go :variables go-tab-width 2) ;try
      )
    ;; List of additional packages that will be installed without being
@@ -321,10 +323,224 @@ before packages are loaded. If you are unsure, you should try in setting them in
 `dotspacemacs/user-config' first."
   (setq-default
    evil-search-module 'evil-search ;lewton
-   initial-frame-alist '((left . 10) (top . 0) (width . 120) (height . 30))) ;lewton
-  (load-file "/usr/local/Cellar/emacs-plus@27/27.0.91/share/emacs/27.0.91/lisp/simple.elc") ; lewton is it necessary?
+   initial-frame-alist '((left . 10) (top . 0) (width . 120) (height . 30)) ;lewton
+   default-frame-alist '((left . 10) (top . 0) (width . 120) (height . 30))) ;lewton
+  ;(load-file "/usr/local/Cellar/emacs-plus@27/27.0.91/share/emacs/27.0.91/lisp/simple.elc") ; lewton is it necessary?
   (add-hook 'doc-view-mode-hook 'auto-revert-mode) ;lewton
+  (add-hook 'LaTeX-mode-hook 'outline-minor-mode) ;lewton
   (setq mouse-yank-at-point t)
+  (eval-after-load 'simple
+	;the function below is copied from /usr/share/emacs/27.1/lisp/simple.el.gz and modified
+    '(defun shell-command-on-region (start end command
+				      &optional output-buffer replace
+				      error-buffer display-error-buffer
+				      region-noncontiguous-p)
+  "Execute string COMMAND in inferior shell with region as input.
+Normally display output (if any) in temp buffer `*Shell Command Output*';
+Prefix arg means replace the region with it.  Return the exit code of
+COMMAND.
+
+To specify a coding system for converting non-ASCII characters
+in the input and output to the shell command, use \\[universal-coding-system-argument]
+before this command.  By default, the input (from the current buffer)
+is encoded using coding-system specified by `process-coding-system-alist',
+falling back to `default-process-coding-system' if no match for COMMAND
+is found in `process-coding-system-alist'.
+
+Noninteractive callers can specify coding systems by binding
+`coding-system-for-read' and `coding-system-for-write'.
+
+If the command generates output, the output may be displayed
+in the echo area or in a buffer.
+If the output is short enough to display in the echo area
+\(determined by the variable `max-mini-window-height' if
+`resize-mini-windows' is non-nil), it is shown there.
+Otherwise it is displayed in the buffer `*Shell Command Output*'.
+The output is available in that buffer in both cases.
+
+If there is output and an error, a message about the error
+appears at the end of the output.
+
+Optional fourth arg OUTPUT-BUFFER specifies where to put the
+command's output.  If the value is a buffer or buffer name,
+erase that buffer and insert the output there; a non-nil value of
+`shell-command-dont-erase-buffer' prevent to erase the buffer.
+If the value is nil, use the buffer `*Shell Command Output*'.
+Any other non-nil value means to insert the output in the
+current buffer after START.
+
+Optional fifth arg REPLACE, if non-nil, means to insert the
+output in place of text from START to END, putting point and mark
+around it.
+
+Optional sixth arg ERROR-BUFFER, if non-nil, specifies a buffer
+or buffer name to which to direct the command's standard error
+output.  If nil, error output is mingled with regular output.
+When called interactively, `shell-command-default-error-buffer'
+is used for ERROR-BUFFER.
+
+Optional seventh arg DISPLAY-ERROR-BUFFER, if non-nil, means to
+display the error buffer if there were any errors.  When called
+interactively, this is t.
+
+Non-nil REGION-NONCONTIGUOUS-P means that the region is composed of
+noncontiguous pieces.  The most common example of this is a
+rectangular region, where the pieces are separated by newline
+characters."
+  (interactive (let (string)
+		 (unless (mark)
+		   (user-error "The mark is not set now, so there is no region"))
+		 ;; Do this before calling region-beginning
+		 ;; and region-end, in case subprocess output
+		 ;; relocates them while we are in the minibuffer.
+		 (setq string (read-shell-command "Shell command on region: "))
+		 ;; call-interactively recognizes region-beginning and
+		 ;; region-end specially, leaving them in the history.
+		 (list (region-beginning) (region-end)
+		       string
+		       current-prefix-arg
+		       current-prefix-arg
+		       shell-command-default-error-buffer
+		       t
+		       (region-noncontiguous-p))))
+  (let ((error-file
+	 (if error-buffer
+	     (make-temp-file
+	      (expand-file-name "scor"
+				(or small-temporary-file-directory
+				    temporary-file-directory)))
+	   nil))
+	exit-status)
+    ;; Unless a single contiguous chunk is selected, operate on multiple chunks.
+    (if region-noncontiguous-p
+        (let ((input (concat (funcall region-extract-function 'delete) "\n"))
+              output)
+          (with-temp-buffer
+            (insert input)
+            (call-process-region (point-min) (point-max)
+                                 shell-file-name t t
+                                 nil shell-command-switch
+                                 command)
+            (setq output (split-string (buffer-string) "\n")))
+          (goto-char start)
+          (funcall region-insert-function output))
+      (if (or replace
+              (and output-buffer
+                   (not (or (bufferp output-buffer) (stringp output-buffer)))))
+          ;; Replace specified region with output from command.
+          (let ((swap (and replace (< start end))))
+            ;; Don't muck with mark unless REPLACE says we should.
+            (goto-char start)
+            (and replace (push-mark (point) 'nomsg))
+            (setq exit-status
+                  (call-shell-region start end command replace
+                                       (if error-file
+                                           (list t error-file)
+                                         t)))
+            ;; It is rude to delete a buffer that the command is not using.
+            ;; (let ((shell-buffer (get-buffer "*Shell Command Output*")))
+            ;;   (and shell-buffer (not (eq shell-buffer (current-buffer)))
+            ;; 	 (kill-buffer shell-buffer)))
+            ;; Don't muck with mark unless REPLACE says we should.
+            (and replace swap (exchange-point-and-mark)))
+        ;; No prefix argument: put the output in a temp buffer,
+        ;; replacing its entire contents.
+        (let ((buffer (get-buffer-create
+                       (or output-buffer "*Shell Command Output*"))))
+          (set-buffer-major-mode buffer) ; Enable globalized modes (bug#38111)
+          (unwind-protect
+              (if (and (eq buffer (current-buffer))
+                       (or (memq shell-command-dont-erase-buffer '(nil erase))
+                           (and (not (eq buffer (get-buffer "*Shell Command Output*")))
+                                (not (region-active-p)))))
+                  ;; If the input is the same buffer as the output,
+                  ;; delete everything but the specified region,
+                  ;; then replace that region with the output.
+                  (progn (setq buffer-read-only nil)
+                         (delete-region (max start end) (point-max))
+                         (delete-region (point-min) (min start end))
+                         (setq exit-status
+                               (call-process-region (point-min) (point-max)
+                                                    shell-file-name t
+                                                    (if error-file
+                                                        (list t error-file)
+                                                      t)
+                                                    nil shell-command-switch
+                                                    command)))
+                ;; Clear the output buffer, then run the command with
+                ;; output there.
+                (let ((directory default-directory))
+                  (with-current-buffer buffer
+                    (if (not output-buffer)
+                        (setq default-directory directory))
+                    (shell-command-save-pos-or-erase)))
+                (setq exit-status
+                      (call-shell-region start end command nil
+                                           (if error-file
+                                               (list buffer error-file)
+                                             buffer))))
+            ;; Report the output.
+            (with-current-buffer buffer
+              (setq mode-line-process
+                    (cond ((null exit-status)
+                           " - Error")
+                          ((stringp exit-status)
+                           (format " - Signal [%s]" exit-status))
+                          ((not (equal 0 exit-status))
+                           (format " - Exit [%d]" exit-status)))))
+            (if (with-current-buffer buffer (> (point-max) (point-min)))
+                ;; There's some output, display it
+                (progn
+                  (display-message-or-buffer buffer)
+                  (shell-command-set-point-after-cmd buffer))
+            ;; No output; error?
+              (let ((output
+                     (if (and error-file
+                              (< 0 (file-attribute-size
+				    (file-attributes error-file))))
+                         (format "some error output%s"
+                                 (if shell-command-default-error-buffer
+                                     (format " to the \"%s\" buffer"
+                                             shell-command-default-error-buffer)
+                                   ""))
+                       "no output")))
+                (cond ((null exit-status)
+                       (message "(Shell command failed with error)"))
+                      ((equal 0 exit-status)
+                       ;(message "(Shell command succeeded with %s)" output))
+	                (message "%s" (concat (propertize "Done" 'face '(:foreground "white" :background "forest green")) " " output))) ;lewton
+                      ((stringp exit-status)
+                       (message "(Shell command killed by signal %s)"
+                                exit-status))
+                      (t
+                       (message "(Shell command failed with code %d and %s)"
+                                exit-status output))))
+              ;; Don't kill: there might be useful info in the undo-log.
+              ;; (kill-buffer buffer)
+              )))))
+
+    (when (and error-file (file-exists-p error-file))
+      (if (< 0 (file-attribute-size (file-attributes error-file)))
+	  (with-current-buffer (get-buffer-create error-buffer)
+            (goto-char (point-max))
+            ;; Insert a separator if there's already text here.
+	    (unless (bobp)
+	      (insert "\f\n"))
+	    ;; Do no formatting while reading error file,
+	    ;; because that can run a shell command, and we
+	    ;; don't want that to cause an infinite recursion.
+	    (format-insert-file error-file nil)
+	    (and display-error-buffer
+		 (display-buffer (current-buffer)))))
+      (delete-file error-file))
+    exit-status))
+   )
+  (add-to-list 'load-path "~/Software/outline-magic")
+  (eval-after-load 'outline
+  '(progn
+    (require 'outline-magic)
+    ;(define-key outline-minor-mode-map (kbd "SPC f TAB") 'outline-cycle) ;cannot input space in insert mode
+    (define-key evil-normal-state-map (kbd "SPC f TAB") 'outline-cycle)))
   )
 
 (defun dotspacemacs/user-config ()
@@ -336,6 +552,7 @@ explicitly specified that a variable should be set before a package is loaded,
 you should place your code here."
   (require 'ob-python) ;lewton somehow after update they are not auto loaded, unless set here, have to run org-reload
   (require 'ob-shell) ;lewton
+  (require 'simple) ;lewton
   (setq-default 
    select-enable-primary t ;important for linux "selection + middle button"
    mouse-yank-at-point t
@@ -392,7 +609,7 @@ you should place your code here."
     "Insert a `SRC-CODE-TYPE' type source code block in org-mode."
     (interactive
      (let
-         ((src-code-types '("sh" "python" "latex")))
+         ((src-code-types '("sh" "python" "latex" "quote")))
          ;;(list (ido-completing-read "Source code type: " src-code-types))))
          (list (completing-read "Source code type: " src-code-types))))
          ;;when max-mini-window-height<2 the ido-completing-read doesnot work well, the default completing-read looks better
@@ -400,19 +617,27 @@ you should place your code here."
       ((string= src-code-type "python")
        (progn
         (newline)
-        (insert (format "#+BEGIN_SRC %s :results output :export code :tangle no" src-code-type))
+        (insert (format "#+Name:\n#+BEGIN_SRC %s :results output :export code :tangle no" src-code-type))
         (newline)
         (insert "#+END_SRC\n")
         (previous-line 2)
         (org-edit-src-code)))
-      ((string= src-code-type "sh")
+	  ((string= src-code-type "sh")
        (progn
-		 ;(newline-and-indent) ;it cause some wired problem adding , to the first line of the following block
+										;(newline-and-indent) ;it cause some wired problem adding , to the first line of the following block
          (newline)
-         (insert (format "#+BEGIN_SRC %s :results none" src-code-type))
+         (insert (format "#+Name:\n#+BEGIN_SRC %s :results none" src-code-type))
          (newline)
          (newline)
          (insert (format "%s" "#+END_SRC\n"))
+         (previous-line 2)))
+      ((string= src-code-type "quote")
+       (progn
+         (newline)
+         (insert "#+BEGIN_QUOTE")
+         (newline)
+         (newline)
+         (insert (format "%s" "#+END_QUOTE\n"))
          (previous-line 2)))
          ;(org-edit-src-code)))
     ))
@@ -447,7 +672,7 @@ you should place your code here."
 	)
   (defun insert-latex-figure()
     (interactive)
-	(insert "\\begin{figure*}[hptb]\n\\begin{center}\n\\epsscale{1}\n\\plotone{}\n\\caption{}\n\\label{fig:}\n\\end{center}\n\\end{figure*}")
+	(insert "\\begin{figure*}[hptb]\n\\centering\n\\includegraphics[width=\\textwidth]{}\n\\caption{\n\\label{fig:}}\n\\end{figure*}")
 	)
   (defun openiTerm () ;Mac iTerm2
     (interactive)
@@ -456,9 +681,26 @@ you should place your code here."
   (defun runcurrentlineinshell ()
     (interactive)
     (let ((linecmd (buffer-substring-no-properties (line-beginning-position) (line-end-position))))
-      (message "%s" (concat (propertize "Running: " 'face '(:foreground "red")) linecmd))
+      (message "%s" (concat (propertize "Running: " 'face '(:foreground "red")) linecmd (propertize " running" 'face '(:foreground "red"))))
       (shell-command linecmd)
+      ;(message "%s" (concat (propertize "Done" 'face '(:foreground "white" :background "forest green")) " " linecmd)) ;No, will cover output msg
       ))
+
+  (defun executelinesinshell (beg end)
+    "Run current line or selection in shell and insert output."
+    (interactive
+     (if (use-region-p)
+         (list (region-beginning) (region-end))
+         (list (line-beginning-position) (line-end-position))))
+    (let ((mark  (mark))
+        (begin   (save-excursion (goto-char (region-beginning)) (line-beginning-position)))
+        (end   (save-excursion (goto-char (region-end)) (line-end-position))))
+      (push-mark mark t t)
+      (setq deactivate-mark  nil)
+    (save-excursion
+      ;(unless (bolp) (insert "\n"))
+      (message "%s" (propertize " running" 'face '(:foreground "red")))
+      (shell-command (buffer-substring-no-properties begin end)))))
 
   (defun do_region (start end &optional arg)
 	(interactive (if current-prefix-arg
@@ -511,6 +753,15 @@ you should place your code here."
 		))
 	)
 
+  ;https://www.emacswiki.org/emacs/ExecPath
+  (defun set-exec-path-from-shell-PATH ()
+  "Set up Emacs' `exec-path' and PATH environment variable to match that used by the user's shell.  This is particularly useful under Mac OS X and macOS, where GUI apps are not started from a shell."
+  (interactive)
+  (let ((path-from-shell (replace-regexp-in-string "[ \t\n]*$" "" (shell-command-to-string "$SHELL --login -c 'echo $PATH'"))))
+    (setenv "PATH" path-from-shell)
+    (setq exec-path (split-string path-from-shell path-separator))))
+
+  (set-exec-path-from-shell-PATH )
 
   (defun get-key-combo (key)
 	"Just return the key combo entered by the user"
@@ -605,7 +856,7 @@ you should place your code here."
   (define-key evil-normal-state-map (kbd ". e") 'editcode)
   (define-key evil-normal-state-map (kbd ". h") 'insert-image-header)
   (define-key evil-normal-state-map (kbd ". c") 'runcurrentlineinshell)
-  (define-key evil-normal-state-map (kbd ". l") 'do_region)
+  (define-key evil-normal-state-map (kbd ". l") 'executelinesinshell)
   (define-key evil-normal-state-map (kbd "SPC t e") 'openiTerm)
   (define-key evil-normal-state-map (kbd "SPC a o p") 'org-priority)
   ;(define-key evil-normal-state-map (kbd ". r") 'org-babel-execute-src-block)
@@ -634,24 +885,26 @@ you should place your code here."
   (add-hook 'org-mode-hook #'(lambda () (modify-syntax-entry ?_ "w")))
   (add-hook 'org-mode-hook #'(lambda () (modify-syntax-entry ?. "w"))) ;;Character considered as part of a word
   (defalias 'forward-evil-word 'forward-evil-symbol)
-  ;(with-eval-after-load "ispell"
-  ;  (setq ispell-program-name "hunspell")
-  ;  ;; ispell-set-spellchecker-params has to be called
-  ;  ;; before ispell-hunspell-add-multi-dic will work
-  ;  (ispell-set-spellchecker-params)
-  ;  (ispell-hunspell-add-multi-dic "pl_PL,en_GB")
-  ;  (setq ispell-dictionary "pl_PL,en_GB"))
+  (with-eval-after-load "ispell"
+    ;(setq ispell-program-name "hunspell")
+    ;; ispell-set-spellchecker-params has to be called
+    ;; before ispell-hunspell-add-multi-dic will work
+    ;(ispell-set-spellchecker-params)
+    ;(ispell-hunspell-add-multi-dic "pl_PL,en_GB")
+    ;(setq ispell-dictionary "pl_PL,en_GB")
+    (setq ispell-personal-dictionary "/home/lewton/.emacs.d/lewton.dictionary")
+  )
+  ; dummy silence definition
+  (defun silence () (interactive))
+  ; don't jump the cursor around in the window on clicking
+  (define-key evil-motion-state-map [down-mouse-1] 'silence)
+  ; also avoid any '<mouse-1> is undefined' when setting to 'undefined
+  ;(define-key evil-motion-state-map [mouse-1] 'silence)
 )
 
 
 ;I don't know if the following need to be reset
-;;; Do not write anything past this comment. This is where Emacs will
-;;; auto-generate custom variable definitions.
 ;(custom-set-variables
-; '(org-format-latex-options
-;   '(:foreground default :background default :scale 1.3 :html-foreground "Black" :html-background "Transparent" :html-scale 1.0 :matchers
-;				 ("begin" "$1" "$" "$$" "\\(" "\\[")))
-; '(org-src-window-setup 'current-window)
 ; '(safe-local-variable-values
 ;   '((eval spacemacs/toggle-auto-fill-mode-off)
 ;	 (eval spacemacs/toggle-visual-line-navigation-on)))
@@ -666,11 +919,27 @@ you should place your code here."
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
+ '(TeX-view-program-selection
+   '(((output-dvi has-no-display-manager)
+	  "dvi2tty")
+	 ((output-dvi style-pstricks)
+	  "dvips and gv")
+	 (output-dvi "xdvi")
+	 (output-pdf "Okular")
+	 (output-html "xdg-open")))
+ '(evil-want-Y-yank-to-eol nil)
+ '(mouse-wheel-mode nil)
+ '(org-fontify-quote-and-verse-blocks t)
+ '(org-format-latex-options
+   '(:foreground default :background default :scale 3 :html-foreground "Black" :html-background "Transparent" :html-scale 2.0 :matchers
+				 ("begin" "$1" "$" "$$" "\\(" "\\[")))
+ '(org-src-window-setup 'current-window)
  '(package-selected-packages
-   '(flyspell-correct-popup flyspell-popup yapfify xterm-color ws-butler winum which-key volatile-highlights vi-tilde-fringe uuidgen use-package toc-org spaceline shell-pop restart-emacs request rainbow-delimiters pyvenv pytest pyenv-mode py-isort popwin pip-requirements persp-mode pcre2el paradox org-present org-pomodoro org-mime org-download org-bullets open-junk-file neotree multi-term move-text lorem-ipsum live-py-mode linum-relative link-hint langtool indent-guide hy-mode hungry-delete htmlize hl-todo highlight-parentheses highlight-numbers highlight-indentation helm-themes helm-swoop helm-pydoc helm-projectile helm-mode-manager helm-make helm-flx helm-descbinds helm-ag google-translate golden-ratio gnuplot flyspell-correct-helm flx-ido fill-column-indicator fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-vimish-fold evil-unimpaired evil-tutor evil-surround evil-search-highlight-persist evil-numbers evil-nerd-commenter evil-mc evil-matchit evil-lisp-state evil-indent-plus evil-iedit-state evil-exchange evil-escape evil-ediff evil-args evil-anzu eval-sexp-fu eshell-z eshell-prompt-extras esh-help dumb-jump diminish define-word cython-mode column-enforce-mode clean-aindent-mode auto-highlight-symbol auto-dictionary auctex anaconda-mode aggressive-indent adaptive-wrap ace-window ace-link ace-jump-helm-line)))
+   '(pyim xr pangu-spacing find-by-pinyin-dired fcitx ace-pinyin pinyinlib flyspell-correct-popup flyspell-popup yapfify xterm-color ws-butler winum which-key volatile-highlights vi-tilde-fringe uuidgen use-package toc-org spaceline shell-pop restart-emacs request rainbow-delimiters pyvenv pytest pyenv-mode py-isort popwin pip-requirements persp-mode pcre2el paradox org-present org-pomodoro org-mime org-download org-bullets open-junk-file neotree multi-term move-text lorem-ipsum live-py-mode linum-relative link-hint langtool indent-guide hy-mode hungry-delete htmlize hl-todo highlight-parentheses highlight-numbers highlight-indentation helm-themes helm-swoop helm-pydoc helm-projectile helm-mode-manager helm-make helm-flx helm-descbinds helm-ag google-translate golden-ratio gnuplot flyspell-correct-helm flx-ido fill-column-indicator fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-vimish-fold evil-unimpaired evil-tutor evil-surround evil-search-highlight-persist evil-numbers evil-nerd-commenter evil-mc evil-matchit evil-lisp-state evil-indent-plus evil-iedit-state evil-exchange evil-escape evil-ediff evil-args evil-anzu eval-sexp-fu eshell-z eshell-prompt-extras esh-help dumb-jump diminish define-word cython-mode column-enforce-mode clean-aindent-mode auto-highlight-symbol auto-dictionary auctex anaconda-mode aggressive-indent adaptive-wrap ace-window ace-link ace-jump-helm-line)))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
- )
+ '(font-latex-sectioning-2-face ((t (:background "#F0F0F0" :foreground "#3C3C3C" :overline nil :weight bold :height 1.3))))
+ '(font-latex-sectioning-3-face ((t (:background "#E5F4FB" :foreground "#123555" :overline nil :weight bold :height 1.0)))))
