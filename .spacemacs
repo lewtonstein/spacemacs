@@ -609,7 +609,7 @@ you should place your code here."
     "Insert a `SRC-CODE-TYPE' type source code block in org-mode."
     (interactive
      (let
-         ((src-code-types '("sh" "python" "latex" "quote")))
+         ((src-code-types '("bash" "python" "latex" "quote")))
          ;;(list (ido-completing-read "Source code type: " src-code-types))))
          (list (completing-read "Source code type: " src-code-types))))
          ;;when max-mini-window-height<2 the ido-completing-read doesnot work well, the default completing-read looks better
@@ -622,7 +622,7 @@ you should place your code here."
         (insert "#+END_SRC\n")
         (previous-line 2)
         (org-edit-src-code)))
-	  ((string= src-code-type "sh")
+	  ((string= src-code-type "bash")
        (progn
 										;(newline-and-indent) ;it cause some wired problem adding , to the first line of the following block
          (newline)
@@ -929,6 +929,7 @@ you should place your code here."
 	 (output-html "xdg-open")))
  '(evil-want-Y-yank-to-eol nil)
  '(mouse-wheel-mode nil)
+ '(org-babel-load-languages '((emacs-lisp . t) (shell . t)))
  '(org-fontify-quote-and-verse-blocks t)
  '(org-format-latex-options
    '(:foreground default :background default :scale 3 :html-foreground "Black" :html-background "Transparent" :html-scale 2.0 :matchers
